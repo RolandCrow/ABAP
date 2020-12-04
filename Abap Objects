@@ -1,0 +1,1120 @@
+REPORT z_create_example_data.
+
+DATA text TYPE string VALUE 'Hello World!'.
+
+START-OF-SELECTION.
+WRITE text.
+
+
+
+REPORT z_create_example_data.
+
+DATA text TYPE string VALUE 'Hello World!'.
+
+START-OF-SELECTION.
+    MESSAGE text TYPE 'I'.
+
+
+
+
+REPORT z_create_example_data.
+
+DATA: customer_wa TYPE zcustomers,
+      customer_tab TYPE HASHED TABLE
+                    OF zcustomers
+                    WITH UNIQUE KEY id.
+
+DATA: car_wa TYPE zcars,
+      car_tab TYPE HASHED TABLE
+               OF zcars
+               WITH  UNIQUE KEY licence_plate.
+
+START-OF-SELECTION.
+
+    customers_wa-id = '000000001'.
+    customers_wa-name = 'Maximilien Vomact'.
+    INSERT customer_wa INTO TABLE customer_tab.
+
+    customer_wa-id = '00000002'.
+    customer_wa-name =  'Benjacomin Bozart'.
+    INSERT customer_wa INTO TABLE customer_tab.
+
+
+    customers_wa-id = '000000003'.
+    customers_wa-name = 'Johanna Gnade'.
+    INSERT customer_wa INTO TABLE customer_tab.
+
+    customer_wa-id = '00000004'.
+    customer_wa-name =  'Dolores Oh'.
+    INSERT customer_wa INTO TABLE customer_tab.
+
+
+   TRY.
+        DELETE FROM zcustomers.
+        INSERT zcustomers
+               FROM TABLE customer_tab.
+        IF sy-subrc = 0.
+            MESSAGE 'Customer table updated'
+                TYPE 'I'.
+        ENDIF.
+
+        CATCH cx_cy_open_sql_db.
+            MESSAGE 'Customer table could not be'
+                TYPE 'I' DISPLAY LIKE 'E'.
+        ENDTRY.
+
+
+   car_wa-licence_plate = '1234XX CA'.
+   car_wa-category = 'A'.
+   INSERT car_wa INTO TABLE car_tab.
+
+   car_wa-licence_plate = '567BYY NY'.
+      car_wa-category = 'A'.
+      INSERT car_wa INTO TABLE car_tab.
+
+   car_wa-licence_plate = '4321ZZ NV'.
+      car_wa-category = 'A'.
+      INSERT car_wa INTO TABLE car_tab.
+
+   car_wa-licence_plate = '5522HH NC'.
+      car_wa-category = 'B'.
+      INSERT car_wa INTO TABLE car_tab.
+
+   car_wa-licence_plate = '1717WW AZ'.
+      car_wa-category = 'C'.
+      INSERT car_wa INTO TABLE car_tab.
+
+
+   TRY.
+        DELETE FROM zcars.
+        INSERT zcars.
+               FROM TABLE car_tab.
+               IF sy-subc = 0.
+               MESSAGE 'Car table updated'
+                        TYPE 'I'.
+        ENDIF.
+
+        CATCH cx_sy_open_sql_db.
+            MESSAGE 'Car table could not be updated'
+                TYPE 'I' DISPLAY LIKE 'E'.
+        ENDTRY.
+
+
+
+FUNCTION-POOL z_car_rental_screens.
+
+SELECTION-SCREEN BEGIN OF SCREEN 1100
+                 AS WINDOW TITLE text-cid.
+PARAMETERS id TYPE zcustomers-id.
+SELECTION-SCREEN END OF SCREEN 1100.
+
+*
+
+
+SELECTION-SCREEN BEGIN OF SCREEN 1200
+                 AS WINDOW TITLE text-rsv.
+PARAMETERS category TYPE zcars-category OBLIGATORY VALUE CHECK.
+
+PARAMETERS day_from TYPE zreservation-date_from.
+PARAMETERS day_to TYPE zreservation-date_to.
+SELECTION-SCREEN END OF SCREEN 1200.
+
+*
+
+AT SELECTION-SCREEN.
+    CASE sy-dynnr.
+        WHEN 1200.
+            IF day_to < day_from.
+                MESSAGE 'DAY_TO must not be before DAY_FROM'
+            TYPE 'E'.
+        ENDIF.
+    ENDCASE.
+
+
+METHOD class_constructor.
+    CREATE OBJECT car_reservation.
+ENDMETHOD.
+
+*
+
+METHOD constructor.
+    SELECT *
+            FROM zreservations.
+            INTO TABLE me -> zreservation_tab.
+ENDMETHOD.
+
+
+*
+
+
+METHOD make_reservation.
+
+DATA: licence_plate TYPE zcars-licence-plate,
+      reservation_wa LIKE LINE OF reservation_tab,
+      reservation_num TYPE i,
+      mess            TYPE string.
+
+reservation_num = lines(reservation_tab).
+
+SELECT licence_plate
+        FROM zcars
+        INTO (licence_plate)
+        WHERE category = category.
+
+   LOOK AT reservation_tab
+        TRANSPORTING NO FIELDS
+        WHERE licence_plate = licence_plate
+                AND NOT (date_from > date_to OR date_to < date_from).
+        ENDLOOP.
+
+        IF sy-subrc <> 0.
+            reservation_wa-reservation_id = reservation_num + 1.
+            reservation_wa-customer_id = customer.
+            reservation_wa-licence_plate = licence_plate.
+            reservation_wa-date_from = date_from.
+            reservation_wa-date_to = date_to.
+            INSERT reservation_wa INTO TABLE reservation_tab.
+            IF sy-subrc = 0.
+                CONCATENATE licence_plate ' reserved!' INTO mess.
+                MESSAGE mess TYPE 'I'.
+            ELSE.
+                MESSAGE 'INTERNAL error!' TYPE 'I' DISPLAY 'E'.
+                LEAVE PROGRAM.
+            ENDIF.
+            RETURN.
+        ENDIF.
+   ENDSELECT.
+
+   RAISE EXCEPTION TYPE zcx_no_car_available.
+
+ENDMETHOD.
+
+
+METHOD persist_reservations.
+    DELETE FROM zreservation.
+    INSERT zreservation
+        FROM TABLE reservation_tab.
+ENDMETHOD.
+
+METHOD constructor.
+    SELECT SINGLE *
+        FROM zcustomers
+        INTO customer_wa
+        WHERE id = id.
+    IF sy-subrc <> 0.
+        RAISE EXCEPTION TYPE zcx_no_customer.
+    ENDIF.
+ENDMETHOD.
+
+METHOD reserve_a_car.
+
+    DATA: category TYPE zcars-category,
+          date_from TYPE zreservation-date_from,
+          date_to TYPE zreservation-date_to.
+
+    CALL FUNCTION 'Z_INPUT_RESERVATION'
+        IMPORTING
+            car_category = category
+            date_from = date_from
+            date_to  = date_to.
+
+    car_reservation -> make_reservation(
+                        customer = me -> customer_wa_id
+                        category = category
+                        date_from = date_from
+                        date_to = date_to
+
+
+    ).
+
+
+
+PROGRAM z_rental_car_reservation.
+
+*Declaration
+
+CLASS cl_car_rental DEFINITION.
+    PUBLIC SECTION.
+        CLASS METHODS main.
+    ENDCLASS.
+
+*Implementation
+
+CLASS cl_car_rental DEFINITION.
+    METHOD main.
+        DATA: id   TYPE zcustomers-id,
+        customer   TYPE REF TO zcl_customer,
+        ans        TYPE c LENGTH 1,
+        reservations TYPE REF TO zcl_car_reservation.
+
+"Create a customer
+CALL FUNCTION 'Z_INPUT_CUSTOMER'
+        IMPORTING
+            customer_id = id.
+TRY.
+    CREATE OBJECT customer EXPORTING id = id.
+  CATCH zcx_no_customers.
+    MESSAGE 'Unknown customer'
+        TYPE 'I' DISPLAY LIKE 'E'.
+    RETURN.
+ENDTRY.
+
+"Create object for reservations
+    reservation = zcl_reservations => car_reservations.
+
+DO.
+  "Customer reserves a car
+  TRY.
+     customer -> reserve_a_car(reservations).
+     CATCH zcx_no_car_available.
+        MESSAGE 'No car available!'
+             TYPE 'I' DISPLAY LIKE 'E'.
+  ENDTRY.
+
+CALL FUNCTION 'POPUP_TO_CONFIRM'
+    EXPORTING
+        text_question      = 'other reservations?'
+        text_button1       = 'Yes'
+        text_button2       = 'No'
+        display_cancel_button = ' '
+        IMPORTING
+        answer             = ans.
+        IF ans = '2'.
+            EXIT.
+        ENDIF.
+    ENDDO.
+
+
+*Persist data on database
+    reservations -> persist_reservations( ).
+ENDMETHOD.
+ENDCLASS.
+
+
+* p 134
+
+
+REPORT z_show_reservations.
+
+CLASS report_reservation DEFINITION.
+    PUBLIC SECTION
+        CLASS-METHODS show_all.
+ENDCLASS.
+
+
+CLASS report_reservations IMPLEMENTATION.
+    METHODS show_all.
+        DATA: reservations TYPE TABLE OF zreservations,
+              alv          TYPE REF TO cl_salv_table.
+        SELECT *
+                FROM zreservations
+                INTO TABLE reservations
+                ORDER BY date_from.
+        TRY.
+            cl_salv_table => factory (
+                IMPORTING r_salv_table = alv
+                CHANGING t_table = reservations).
+            alv -> display( ).
+        CATCH cx_salv_msg.
+            MESSAGE 'ALV display not possible' TYPE 'I'
+                DISPLAY LIKE 'E'.
+        ENDTRY.
+    ENDMETHOD.
+    ENDCLASS.
+
+START-OF-SELECTION.
+    report_reservation => show_all().
+
+
+REPORT z_program_layout.
+
+ *Global declaration
+
+INTERFACE intf.
+    METHODS meth IMPORTING text TYPE csequance.
+ENDINTERFACE.
+
+CLASS cls DEFINITION.
+    PUBLIC SECTION.
+        INTERFACE intf.
+ENDCLASS.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION
+        INTERFACE intf.
+ENDCLASS.
+
+* Implementation
+
+CLASS cls IMPLEMENTATION.
+    METHOD intf~meth.
+        MESSAGE text TYPE 'I'
+    ENDMETHOD.
+ENDCLASS.
+
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+        DATA oref TYPE cls.
+        oref -> meth('HELLO ABAP!').
+    ENDMETHOD.
+ENDCLASS.
+
+START-OF-SELECTION
+    demo => main().
+
+
+REPORT z_include_demo.
+
+INCLUDE z_include_demo_top.
+INCLUDE z_include_demo_impl.
+INCLUDE z_include_demo_start.
+
+Top-Include z_include_demo_top:
+
+INCLUDE z_include_demo_decl1.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+    CLASS-METHODS main.
+ENDCLASS
+
+
+Declaration include z_include_demo_decl1:
+
+INCLUDE z_include_demo_decl2.
+
+CLASS helper1 DEFINITION.
+    PUBLIC SECTION.
+    CLASS-METHODS meth2
+        RETURNING VALUE(p2) TYPE string.
+ENDCLASS.
+
+
+Implementation in z_include_demo_impl1:
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+    DATA text TYPE string.
+    text = helper1 => meth1().
+    MESSAGE text TYPE 'I'.
+    ENDMETHOD.
+ENDCLASS.
+
+INCLUDE z_include_demo_impl1.
+
+Implementation include z_include_demo_impl1:
+
+CLASS helper1 IMPLEMENTATION.
+    METHOD meth1.
+        p1 = helper2 => meth2 ().
+    ENDMETHOD.
+ENDCLASS.
+
+INCLUDE z_include_demo_impl2.
+
+
+Implementation include z_include_demo_impl2:
+
+CLASS helper2 IMPLEMENTATION.
+    METHOD meth2
+        p2 = 'TEST'.
+    ENDMETHOD.
+ENDCLASS.
+
+Implementation in z_include_demo_start:
+
+START-OF-SELECTION.
+    demo => main().
+
+
+
+CLASS static_vehicle DEFINITION.
+    PUBLIC SECTION.
+    CLASS-METHODS: accelerate IMPORTING delta TYPE 'i',
+                   show_speed.
+    PRIVATE SECTION.
+        CLASS-DATA speed TYPE i.
+    ENDCLASS.
+
+    CLASS static_vehicle IMPLEMENTATION.
+        METHOD accelerate.
+            speed = speed + delta.
+        ENDMETHOD.
+
+    METHOD show_speed.
+        DATA output TYPE string.
+        output = speed.
+        MESSAGE output TYPE 'I'.
+    ENDMETHOD.
+ ENDCLASS.
+
+
+REPORT z_drive_local_static_vehicle.
+
+CLASS static_vehicle IMPLEMENTATION.
+ENDCLASS.
+
+    START-OF-SELECTION.
+        static_vehicle => accelerate(100).
+        static_vehicle => accelerate(200).
+        static_vehicle => show_speed().
+
+
+REPORT z_drive_global_static_vehicle.
+     START-OF-SELECTION.
+         zcl_static_vehicle => accelerate(100).
+         zcl_static_vehicle => accelerate(200).
+         zcl_static_vehicle => show_speed().
+
+* 198
+
+REPORT z_vehicle.
+
+CLASS vehicle DEFINITION
+    PUBLIC SECTION.
+        METHODS: accelerate IMPORTING delta TYPE i,
+            show_speed.
+    PRIVATE SECTION.
+        DATA speed TYPE i.
+ENDCLASS.
+
+CLASS vehicle IMPLEMENTATION.
+    METHOD accelerate.
+        speed = speed + delta.
+    ENDMETHOD.
+    METHOD show_speed.
+        DATA output TYPE string.
+        output = speed.
+        MESSAGE output TYPE 'I'.
+    ENDMETHOD.
+ENDCLASS.
+
+REPORT z_drive_vehicles.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS-METHODS main.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+        DATA: vehicle1 TYPE REF TO zcl_vehicle.
+              vehicle2 TYPE REF TO zcl_vehicle.
+        CREATE OBJECT: vehicle1, vehicle2.
+
+        vehicle1 -> accelerate(100).
+        vehicle1 -> show_speed( ).
+
+        vehicle2 ->  accelerate(200).
+        vehicle2 -> show_speed( ).
+    ENDMETHOD.
+ENDCLASS.
+    START-OF-SELECTION.
+        demo => main( ).
+
+
+REPORT z_drive_vehicle.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS-METHODS main.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+
+    DATA: vehicle1 TYPE REF TO zcl_vehicle.
+          vehicle2 TYPE REF TO zcl_vehicle.
+    CREATE OBJECT vehicle1.
+
+    vehicle2 = vehicle1.
+
+    vehicle1 -> accelerate(100).
+    vehicle2 -> accelerate(200).
+
+    vehicle1 -> show_speed().
+    vehicle2 -> show_speed().
+
+    ENDMETHOD.
+ENDCLASS.
+
+START-OF-SELECTION.
+    demo => main ().
+
+
+REPORT z_drive_many_vehicles.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS-METHODS main.
+ENDCLASS.
+
+CLASS demo DEFINITION.
+    METHOD main.
+        DATA: vehicle  TYPE REF TO zcl_vehicle,
+              vehicle_tab  TYPE TABLE OF
+                           REF TO zcl_vehicle,
+              n            TYPE i VALUE 5,
+              speed        TYPE i.
+        DO n TIMES.
+            CREATE OBJECT vehicle.
+            speed = sy-index * 10.
+            vehicle -> accelerate(speed).
+            APPEND vehicle TO vehicle_tab.
+        ENDDO.
+
+        LOOP AT vehicle_tab INTO vehicle.
+            vehicle -> show_speed().
+        ENDLOOP.
+     ENDMETHOD.
+ENDCLASS.
+
+START-OF-SELECTION.
+    demo => main().
+
+REPORT z_vehicle_factory.
+
+CLASS vehicle DEFINITION CREATE PRIVATE.
+    PUBLIC SECTION.
+        CLASS-METHODS create RETURNING VALUE(ref)
+                             TYPE REF TO vehicle.
+        METHODS: accelerate IMPORTING delta TYPE i,
+                 show_speed.
+        PRIVATE SECTION.
+            DATA speed TYPE i.
+        ENDCLASS.
+
+
+
+    CLASS demo DEFINITION.
+        PUBLIC SECTION.
+            CLASS-METHODS main.
+    ENDCLASS.
+
+    CLASS vehicle IMPLEMENTATION.
+        METHOD create.
+            CREATE OBJECT ref.
+        ENDMETHOD.
+        METHOD accelerate.
+            me -> speed = me -> speed + delta.
+        ENDMETHOD.
+        METHOD show_speed.
+            DATA output TYPE string.
+                 output = me -> speed.
+                 MESSAGE output TYPE 'I'.
+        ENDMETHOD.
+    ENDCLASS.
+
+    CLASS demo IMPLEMENTATION.
+        METHOD main.
+            DATA vehicle TYPE REF TO vehicle.
+            vehicle = vehicle => create().
+            vehicle -> accelerate(100).
+            vehicle -> show_speed().
+        ENDMETHOD.
+    ENDCLASS.
+
+    START-OF-SELECTION.
+        demo => main().
+
+
+REPORT z_vehicle_agent.
+
+CLASS vehicle_agent DEFINITION DEFERRED.
+CLASS vehicle DEFINITION CREATE PRIVATE
+              FRIENDS vehicle_agent.
+      PUBLIC SECTION.
+        METHODS: accelerate IMPORTING delta TYPE i,
+                 show_speed.
+      PRIVATE SECTION.
+        DATA speed TYPE i.
+ENDCLASS.
+
+CLASS vehicle_agent DEFINITION.
+    PUBLIC SECTION.
+        CLASS-METHODS create RETURNING VALUE(ref)
+ENDCLASS.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+     CLASS-METHODS main.
+ENDCLASS.
+
+CLASS vehicle IMPLEMENTATION.
+    METHOD accelerate.
+        me -> speed = me -> speed + delta.
+    ENDMETHOD.
+    METHOD show_speed.
+        DATA output TYPE string.
+        output = me -> speed.
+        MESSAGE output TYPE 'I'.
+    ENDMETHOD.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+        DATA vehicle TYPE REF TO vehicle.
+        vehicle -> accelerate(100).
+        vehicle -> show_speed().
+    ENDMETHOD.
+ENDCLASS.
+
+START-OF-SELECTION.
+    demo => main().
+
+
+* p 215
+
+
+REPORT z_colored_vehicle.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS-METHODS main.
+ENDCLASS.
+
+CLASS vehicle DEFINITION.
+    PUBLIC SECTION.
+        METHODS: constructor IMPORTING color TYPE string,
+                 accelerate  IMPORTING delta TYPE i,
+                 show_speed.
+        PRIVATE SECTION.
+            DATA: color TYPE string,
+                  speed TYPE i.
+ENDCLASS.
+
+CLASS vehicle IMPLEMENTATION.
+    METHOD constructor.
+    me -> color = color.
+ENDMETHOD.
+
+METHOD accelerate.
+    me -> speed = me -> speed + delta.
+ENDMETHOD.
+
+METHOD show_speed.
+    DATA output TYPE string.
+    output = me -> speed.
+    CONCATENATE me -> color ': ' output INTO output.
+    MESSAGE output TYPE 'I'.
+ENDMETHOD.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+        DATA:    red_vehicle TYPE REF TO vehicle,
+                 blue_vehicle TYPE REF TO vehicle,
+                 green_vehicle TYPE REF TO vehicle.
+        CREATE OBJECT:
+            red_vehicle EXPORTING color = 'Red',
+            blue_vehicle EXPORTING color = 'Blue',
+            green_vehicle EXPORTING color = 'Green'.
+
+        red_vehicle -> accelerate(100).
+        blue_vehicle -> accelerate(200).
+        green_vehicle -> accelerate(300).
+
+        red_vehicle -> show_speed().
+        blue_vehicle -> show_speed().
+        green_vehicle -> show_speed().
+     ENDMETHOD.
+ENDCLASS.
+START-OF-SELECTION.
+    demo => main().
+
+
+z_elementary_types_and_objects.
+
+METHOD main.
+    TYPES calc_type TYPE p LENGTH 8 DECIMALS 2.
+    DATA: number_1 TYPE calc_type VALUE 3,
+          number_2 TYPE calc_type VALUE 4,
+          result   TYPE calc_type,
+          output   TYPE string.
+    result = number_1 / number_2.
+    output = result.
+    MESSAGE output TYPE 'I'.
+ENDMETHOD.
+
+* 245
+
+REPORT z_structured_data.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        TYPES: BEGIN OF t_street,
+               name TYPE c LENGTH 40,
+               no   TYPE c LENGTH 4,
+               END OF t_street.
+        CLASS-METHODS main.
+    PRIVATE SECTION.
+        CLASS-DATA: BEGIN OF address,
+                    name TYPE c LENGTH 30,
+                    street TYPE t_street,
+                    BEGIN OF city,
+                        zipcode TYPE n LENGTH 5,
+                        name    TYPE c LENGTH 40,
+                    END OF city,
+                    country TYPE c LENGTH 3 VALUE 'SQL',
+                    END OF address.
+        ENDCLASS.
+
+        CLASS demo IMPLEMENTATION.
+            METHOD main.
+                address-name     = 'Luke Skywalker'.
+                address-street-name = 'Milky Way'.
+                address-street-no   =  '123d'.
+                address-city-zipcode = '64283'.
+                address-city-name    = 'Tatooine'.
+            ENDMETHOD.
+        ENDCLASS.
+        START-OF-SELECTION.
+            demo => main().
+
+REPORT z_include_structure.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS-METHODS main.
+    PRIVATE SECTION.
+        CLASS-DATA: BEGIN OF street,
+                    name TYPE c LENGTH 40,
+                    no   TYPE c LENGTH 4,
+                    END OF STREET.
+        CLASS-DATA: BEGIN OF city,
+                    zipcode TYPE n LENGTH 5,
+                    name    TYPE c LENGTH 40,
+                    END OF CITY.
+        CLASS-DATA: BEGIN OF address,
+                    name TYPE c LENGTH 30.
+                    INCLUDE STRUCTURE street AS str
+                        RENAMING WITH SUFFIX _str.
+                    INCLUDE STRUCTURE city AS cty
+                        RENAMING WITH SUFFIX _cty.
+        CLASS-DATA: END OF address.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+        address-name     =  'Han Solo'.
+        address-name_str =  'Crab Nebula'.
+        address-no_str   =  '18'.
+        address-zipcode_cty = '69121'.
+        address-name_cty  = 'Dark Star'.
+    ENDMETHOD.
+ENDCLASS.
+
+START-OF-SELECTION.
+    demo => main().
+
+REPORT z_system_fields.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS-METHODS main.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+    DATA: output TYPE string,
+          date   TYPE c LENGTH 10,
+          time   TYPE c LENGTH 8.
+          WRITE sy-datum TO date.
+          WRITE sy-uzeit TO time.
+          CONCATENATE 'Hello user'  sy-uname
+                      ' today's date is ' date
+                      'and the time is'  time
+                      ' o'clock.' INTO output.
+          MESSAGE output TYPE 'I'.
+    ENDMETHOD.
+ENDCLASS.
+
+START-OF-SELECTION.
+    demo => main().
+
+REPORT z_type_conversation.
+
+SELECTION-SCREEN BEGIN OF SCREEN 100.
+PARAMETERS number TYPE c LENGTH 30.
+SELECTION-SCREEN END OF SCREEN 100.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION
+        CLASS-METHODS main.
+    PRIVATE SECTION.
+        CLASS-METHODS convert
+            CHANGING target TYPE numeric.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+        DATA: i_target TYPE i,
+              p_target TYPE p LENGTH 8 DECIMALS 2,
+              f_target TYPE f.
+        DO.
+            CALL SELECTION-SCREEN 100.
+            IF sy-subrc <> 0.
+                EXIT.
+            ENDIF.
+            convert(CHANGING target = i_target).
+            convert(CHANGING target = p_target).
+            convert(CHANGING target = f_target).
+        ENDDO.
+    ENDMETHOD.
+    METHOD convert.
+        DATA: msg TYPE c LENGTH 50.
+              typ TYPE c LENGTH 1.
+        DESCRIBE FIELD target TYPE typ.
+        TRY.
+            target = number.
+            WRITE target TO msg LEFT-JUSTIFIED.
+            CONCATENATE 'Input not convertible to' typ
+                INTO msg.
+        ENDTRY.
+        MESSAGE msg TYPE 'I'.
+    ENDMETHOD.
+ENDCLASS.
+START-OF-SELECTION.
+    demo => main().
+
+REPORT z_last_day_of_last_month.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS-METHODS main.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+    DATA: data TYPE d.
+          result_txt TYPE c LENGTH 50.
+    date       = sy-datum.
+    date+6(2)  = '01'.
+    date       = date - 1.
+    WRITE date TO result_txt.
+    CONCATENATE 'Last day of last month: '
+                result_txt INTO result_txt.
+    MESSAGE result_txt TYPE 'I'.
+    ENDMETHOD.
+ENDCLASS.
+
+START-OF-SELECTION.
+    demo => main().
+
+REPORT z_branching.
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS-METHODS main.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+        DATA result_txt TYPE string.
+        IF sy-saprl < '45A'.
+            CONCATENATE 'ABAP Release ' sy-saprl
+                        ' is not object-oriented'
+                        INTO result_txt RESPECTING BLANKS.
+        ELSE.
+            IF sy-saprl < '46A'.
+              CONCATENATE 'ABAP Release' sy-saprl
+                          'is partly object-oriented'
+                          INTO result_txt RESPECTING BLANKS.
+        ELSE.
+            CONCATENATE 'ABAP Release ' sy-saprl
+                        ' is fully object-oriented'
+                        INTO result_txt RESPECTING BLANKS.
+        ENDIF.
+       ENDIF.
+    MESSAGE result_txt TYPE 'I'
+    ENDMETHOD.
+ENDCLASS.
+
+START-OF-SELECTION.
+    demo => main().
+
+REPORT z_case.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS-METHODS main.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+        CASE sy-datum+4(2).
+            WHEN '12' OR '01' OR '02'.
+                MESSAGE 'Winter' TYPE 'I'.
+            WHEN '03' OR '04' OR '05'.
+                MESSAGE 'Spring' TYPE 'I'.
+            WHEN '06' OR '07' OR '08'.
+                MESSAGE 'Summer' TYPE 'I'.
+            WHEN '09' OR '10' OR '11'.
+                MESSAGE 'Autumn' TYPE 'I'.
+            WHEN OTHERS.
+                MESSAGE 'Illegal Date' TYPE 'I'
+                    DISPLAY LIKE 'E'.
+        ENDCASE.
+    ENDMETHOD.
+ENDCLASS.
+START-OF-SELECTION.
+    demo => main().
+
+REPORT z_while.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS-METHODS main.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+        DATA text TYPE string VALUE 'One Two Three'.
+        WHILE sy-subrc = 0.
+            REPLACE ' ' IN text WITH '-'.
+        ENDWHILE.
+        MESSAGE text TYPE 'I'.
+    ENDMETHOD.
+ENDCLASS.
+
+START-OF-SELECTION.
+    demo => main().
+
+REPORT z_check.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS-METHODS main.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+        DATA: is_zero TYPE i,
+              n_index TYPE n.
+        DO 5 TIMES.
+            is_zero = sy-index MOD 2.
+            CHECK is_zero = 0.
+            n_index = sy-index.
+            MESSAGE n_index TYPE 'I'.
+        ENDDO.
+    ENDMETHOD.
+ENDCLASS.
+START-OF-SELECTION.
+    demo => main().
+
+REPORT z_string_processing.
+
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS METHODS main.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+        DATA: text      TYPE string.
+              text_tab  TYPE TABLE OF string.
+        text = 'ABAP and ABAP Objects'.
+        MESSAGE text TYPE 'I'.
+        SPLIT text AT ' ' INTO TABLE text_tab.
+        DELETE text_tab FROM 1 TO 2.
+        CONCATENATE LINES OF text_tab
+            INTO text SEPARATED BY ' '.
+        MESSAGE text TYPE 'I'.
+    ENDMETHOD.
+ENDCLASS.
+START-OF-SELECTION.
+    demo => main().
+
+
+REPORT z_find_replace_substring.
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS-METHODS main.
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+    DATA text TYPE string.
+    text = 'Programming SAR Web AS with ABAP'.
+    FIND FIRST OCCURRENCE.
+     OF SUBSTRING 'web as' IN text
+        IGNORING CASE.
+     IF sy-subrc = 0.
+     REPLACE ALL OCCURRENCES
+        OF SUBSTRING 'Web AS' IN text
+        WITH 'NetWeaver'
+        RESPECTING CASE.
+      REPLACE ALL OCCURRENCES
+        OF SUBSTRING 'ABAP' IN text
+        WITH 'ABAP Objects'
+        RESPECTING CASE.
+     ENDIF
+     IF sy-subrc = 0.
+        MESSAGE text TYPE 'I'.
+     ENDIF
+     ENDMETHOD
+ENDCLASS
+START-OF-SELECTION,
+    demo => main().
+
+REPORT z_strlen.
+
+PARAMETERS input TYPE c LENGTH 30 LOWER CASE.
+CLASS demo DEFINITION.
+    PUBLIC SECTION.
+        CLASS METHODS main
+ENDCLASS.
+
+CLASS demo IMPLEMENTATION.
+    METHOD main.
+    DATA: len     TYPE i,
+          itab    TYPE TABLE OF string,
+          idx     TYPE sy-index,
+          result  TYPE string.
+    len = strlen(input).
+
+     DO len TIMES.
+        idx = sy-index - 1.
+        APPEND input+ idx(1) TO itab.
+     ENDDO.
+     CONCATENATE LINES OF itab INTO result SEPARATED BY '+'.
+        MESSAGE result TYPE 'I'.
+     ENDMETHOD.
+ENDCLASS.
+START-OF-SELECTION.
+    demo => main().
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+
+
+
+
+
+
+                
+
+
+
+
+
